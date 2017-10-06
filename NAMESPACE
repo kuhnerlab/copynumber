@@ -18,7 +18,16 @@ export(	winsorize,
 		callAberrations,
 		interpolate.pcf,
 		pcfPlain,
-		getGRangesFormat
+		getGRangesFormat,
+		getMad,
+		lucianTest,
+		compactMulti,
+		multiPCFcompact,
+		runMultiPcfSubset,
+		doMultiPCF,
+		markMultiPotts,
+		runFastMultiPCF,
+		sawMarkM
 		)
 import(S4Vectors)
 importFrom(IRanges, IRanges)

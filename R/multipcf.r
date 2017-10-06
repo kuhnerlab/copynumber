@@ -1,10 +1,10 @@
 
 ####################################################################
-## Author: Gro Nilsen, Knut Liestøl and Ole Christian Lingjærde.
+## Author: Gro Nilsen, Knut Liest?l and Ole Christian Lingj?rde.
 ## Maintainer: Gro Nilsen <gronilse@ifi.uio.no>
 ## License: Artistic 2.0
 ## Part of the copynumber package
-## Reference: Nilsen and Liestøl et al. (2012), BMC Genomics
+## Reference: Nilsen and Liest?l et al. (2012), BMC Genomics
 ####################################################################
 
 ##Required by:
@@ -29,7 +29,7 @@ multipcf <- function(data,pos.unit="bp",arms=NULL,Y=NULL,gamma=40,normalize=TRUE
   
   #Check assembly input:
   if(!assembly %in% c("hg19","hg18","hg17","hg16","mm7","mm8","mm9")){
-    stop("assembly must be one of hg19, hg18, hg17 or hg16",call.=FALSE)
+    stop("assembly must be one of hg19, hg18, hg17, hg16, mm7, mm8, or mm9",call.=FALSE)
   }
 
   #Is data a file:
@@ -154,12 +154,18 @@ multipcf <- function(data,pos.unit="bp",arms=NULL,Y=NULL,gamma=40,normalize=TRUE
         #only read data for the j'th sample
         sample.data <- read.table(file=data,sep="\t",header=TRUE,colClasses=cc)[,1]
       }
-      sd[j] <- getMad(sample.data[!is.na(sample.data)],k=25)   #Take out missing values before calculating mad
+      sample.noNAdata <- sample.data[!is.na(sample.data)]
+      if(length(sample.noNAdata)==0){
+        sd[j] <- 1
+      }else{
+        sd[j] <- getMad(sample.noNAdata,k=25)   #Take out missing values before calculating mad
+      }
     }
   }
   
   #Scale gamma according to the number of samples:
-  gamma <- gamma*nSample 
+  #No!  If you do this, adding a wt sample gives you fewer breakpoints, which is not appropriate.  Scaling gamma by the number of samples should only be done if each sample is an independent estimate of the same thing, i.e. if you believe that any given breakpoint should be seen in *all* samples.
+  #gamma <- gamma*nSample 
   
 	#run multiPCF separately on each chromosomearm:
   for(c in 1:nArm){
@@ -177,9 +183,9 @@ multipcf <- function(data,pos.unit="bp",arms=NULL,Y=NULL,gamma=40,normalize=TRUE
     }
    
     #Check that there are no missing values:
-    if(any(is.na(arm.data))){
-	   stop("multiPCF cannot be run because there are missing data values, see 'imputeMissing' for imputation of missing values")
-    }
+#    if(any(is.na(arm.data))){
+#	   stop("multiPCF cannot be run because there are missing data values, see 'imputeMissing' for imputation of missing values")
+#    }
     
     #Make sure data is numeric:
     if(any(!sapply(arm.data,is.numeric))){
@@ -211,10 +217,14 @@ multipcf <- function(data,pos.unit="bp",arms=NULL,Y=NULL,gamma=40,normalize=TRUE
       arm.data <- sweep(arm.data,2,w,"*")
       
       #Run multipcf:
-      if(!fast || nrow(arm.data)<400){ 
+      if(TRUE){
+      #if(!fast || nrow(arm.data)<400){ 
+        print("Running 'doMultiPCF'")
+        #exit()
         mpcf <- doMultiPCF(as.matrix(t(arm.data)),gamma=gamma,yest=yest)   #requires samples in rows, probes in columns
         #note: returns samples in rows, estimates in columns.
       }else{  
+        print("Running 'selectFastMultiPcf'")
         mpcf <- selectFastMultiPcf(as.matrix(arm.data),gamma=gamma,L=15,yest=yest)    #requires samples in columns, probes in rows
       }
 
@@ -357,14 +367,17 @@ doMultiPCF <- function(y, gamma, yest) {
 	dim(Sum) <- c(nSamples,nProbes)
 	Aver <- rep(0,N)
 	dim(Aver) <- c(nSamples,nProbes)
+	#We create Nevner such that it counts the number of probes *for which we have data*, so that the averages are calculated correctly.
 	Nevner <- rep(0,N)
-	dim(Nevner) <- c(nProbes,nSamples)
-	Nevner <- t(Nevner+(nProbes:1))
+	dim(Nevner) <- c(nSamples,nProbes)
+  Nevner[,1] <- 1*!is.na(y[,1])
 	eachCost <- rep(0,N)
 	dim(eachCost) <- c(nSamples,nProbes)
 	Cost <- rep(0,nProbes)
 	## Filling of first elements
-	y1<-y[ ,1]
+	ynoNA <- y
+	ynoNA[is.na(ynoNA)] <- 0
+	y1<-ynoNA[ ,1]
 	Sum[ ,1]<-y1
 	Aver[ ,1]<-y1
 	bestCost[1]<-0
@@ -378,17 +391,25 @@ doMultiPCF <- function(y, gamma, yest) {
 	## at any position below n, and which.min finds the position 
 	## with lowest cost (best split). Aver is the average of the 
 	## righthand plateau.
-	for (n in 2:nProbes) {
-   		Sum[ ,1:n] <- Sum[ ,1:n]+y[,n]
-   		Aver[ ,1:n] <- Sum[ ,1:n]/Nevner[ ,(nProbes-n+1):nProbes]
-   		eachCost[ ,1:n] <- -(Sum[ ,1:n]*Aver[ ,1:n])
-      Cost[1:n] <- helper %*% eachCost[ ,1:n]
-		  Cost[2:n] <- Cost[2:n]+bestCost[1:(n-1)]+gamma
-   		Pos <- which.min(Cost[1:n])
-   		bestCost[n] <- Cost[Pos]
-   		bestAver[ ,n] <- Aver[ ,Pos]
-   		bestSplit[n] <- Pos-1
- 	}
+	if (nProbes>1) {
+  	for (n in 2:nProbes) {
+     		Sum[ ,1:n] <- Sum[ ,1:n]+ynoNA[,n]
+     		Nevner[,1:n] <- Nevner[,1:n]+!is.na(y[,n])
+     		## Make sure we don't divide by zero by cheating on the ends a little:
+     		divisor <- Nevner[ , 1:n]
+     		divisor[divisor==0] <- 1
+     		Aver[ ,1:n] <- Sum[ ,1:n]/divisor
+     		#print(Aver[,1:n])
+     		eachCost[ ,1:n] <- -(Sum[ ,1:n]*Aver[ ,1:n])
+        Cost[1:n] <- helper %*% eachCost[ ,1:n]
+  		  Cost[2:n] <- Cost[2:n]+bestCost[1:(n-1)]+gamma
+     		Pos <- which.min(Cost[1:n])
+     		#print("First location")
+     		bestCost[n] <- Cost[Pos]
+     		bestAver[ ,n] <- Aver[ ,Pos]
+     		bestSplit[n] <- Pos-1
+  	}
+	}
 	## The final solution is found iteratively from the sequence   
 	## of split positions stored in bestSplit and the averages 
 	## for each plateau stored in bestAver
@@ -427,8 +448,9 @@ doMultiPCF <- function(y, gamma, yest) {
 ## Choose fast multipcf version, called by multipcf (main function)                                                   
 selectFastMultiPcf <- function(x,gamma,L,yest){
 	xLength <- nrow(x)
-	if (xLength< 1000) {
-		result<-runFastMultiPCF(x,gamma,L,0.15,0.15,yest)
+	if (TRUE) {
+	#if (xLength< 1000) {
+	  result<-runFastMultiPCF(x,gamma,L,0.15,0.15,yest)
 	} else {
 		if (xLength < 3000){
 			result<-runFastMultiPCF(x,gamma,L,0.12,0.10,yest)
@@ -496,30 +518,33 @@ runMultiPcfSubset <- function(x,gamma,L,frac1,frac2,yest){
 
 # function that accumulates numbers of observations and sums between potential breakpoints
 compactMulti <- function(y,mark){
+  #y[is.na(y)] <- 0
+  ynoNA <- y
+  ynoNA[is.na(ynoNA)] <- 0
 	antGen <- ncol(y)
 	antSample <- nrow(y)
 	antMark <- sum(mark)
-	ant <- rep(0,antMark)
+	ant <- rep(0,antMark*antSample)
 	sum <- rep(0,antMark*antSample)
+	dim(ant) <- c(antSample,antMark)
 	dim(sum) <- c(antSample,antMark)
 	pos <- 1
-	oldPos <- 0
 	count <- 1
 	delSum <- rep(0,antSample)
 	while(pos <= antGen){
 		delSum <- 0
+		posArray <- 1*!is.na(y[,pos])
 		while (mark[pos] < 1){
-			delSum <- delSum + y[,pos]
+			delSum <- delSum + ynoNA[,pos]
+			posArray <- posArray + !is.na(y[,pos])
 			pos <- pos+1
 		}		
-		ant[count] <- pos-oldPos
-		sum[,count] <- delSum+y[,pos]
-		oldPos <- pos
+		ant[,count] <- posArray
+		sum[,count] <- delSum+ynoNA[,pos]
 		pos <- pos+1
 		count <- count+1
 	}
 	list(Nr=ant,Sum=sum)
-
 }
 
 
@@ -528,7 +553,7 @@ multiPCFcompact <- function(nr,sum,gamma) {
   ## nr,sum : numbers and sums for one analysis unit,
   ## typically one chromosomal arm. Samples assumed to be in rows. 
   ## gamma: penalty for discontinuities
-  N <- length(nr)
+  N <- ncol(sum)
 	nSamples <- nrow(sum)
 	## initialisations
 	yhat <- rep(0,N*nSamples);
@@ -562,13 +587,15 @@ multiPCFcompact <- function(nr,sum,gamma) {
 	## righthand plateau.
 	for (n in 2:N) {
     Sum[ ,1:n] <- Sum[ ,1:n]+sum[,n]
-		Nevner[,1:n] <- Nevner[,1:n]+nr[n]
+		Nevner[,1:n] <- Nevner[,1:n]+nr[,n]
 		eachCost[ ,1:n] <- -(Sum[ ,1:n]^2)/Nevner[ ,1:n]
+		eachCost[is.na(eachCost[,1:n])] <- 0
     Cost[1:n] <- helper %*% eachCost[, 1:n]
 		Cost[2:n] <- Cost[2:n]+bestCost[1:(n-1)]+gamma
 		Pos <- which.min(Cost[1:n])
  		cost <- Cost[Pos]
  		aver <- Sum[ ,Pos]/Nevner[,Pos]
+ 		#print("Second location")
  		bestCost[n] <- cost
  		bestAver[ ,n] <- aver
  		bestSplit[n] <- Pos-1
@@ -615,7 +642,7 @@ markMultiPotts <- function(nr,sum,gamma,subsize) {
   ## nr,sum: numbers and sums for one analysis unit,
   ##  typically one chromosomal arm. Samples assumed to be in rows. 
   ## gamma: penalty for discontinuities
-  N <- length(nr)
+  N <- ncol(nr)
 	nSamples <- nrow(sum)
 	markSub <- rep(FALSE,N)
 	bestCost <- rep(0,N)
@@ -629,23 +656,29 @@ markMultiPotts <- function(nr,sum,gamma,subsize) {
 	eachCost <- rep(0,N*nSamples)
 	dim(eachCost) <- c(nSamples,N)
 	Cost <- rep(0,N)
+	
 	## Filling of first elements
 	Sum[ ,1]<-sum[,1]
-	Nevner[,1]<-nr[1]	
+	Nevner[,1]<-nr[,1]
 	bestSplit[1]<-0	
-	bestAver[,1] <- sum[,1]/nr[1]
+	bestAver[,1] <- sum[,1]/nr[,1]
 	helper <- rep(1, nSamples)
 	bestCost[1]<-helper%*%(-Sum[,1]*bestAver[,1])	
 	lengde <- rep(0,N)
 	for (n in 2:N) {
     Sum[ ,1:n] <- Sum[ ,1:n]+sum[,n]
-		Nevner[,1:n] <- Nevner[,1:n]+nr[n]
-		eachCost[ ,1:n] <- -(Sum[ ,1:n]^2)/Nevner[ ,1:n]
+    Nevner[,1:n] <- Nevner[,1:n]+nr[,n]
+    eachCost[ ,1:n] <- -(Sum[ ,1:n]^2)/Nevner[ ,1:n]
+    eachCost[is.na(eachCost[, 1:n])] <- 0
     Cost[1:n] <- helper %*% eachCost[, 1:n]
 		Cost[2:n] <- Cost[2:n]+bestCost[1:(n-1)]+gamma
 		Pos <- which.min(Cost[1:n])
  		cost <- Cost[Pos]
+ 		if (length(cost)==0) {
+ 		  cost <- 0.0
+ 		}
  		aver <- Sum[ ,Pos]/Nevner[,Pos]
+ 		#print "Third location"
  		bestCost[n] <- cost
  		bestAver[ ,n] <- aver
  		bestSplit[n] <- Pos-1
@@ -661,7 +694,7 @@ markMultiPotts <- function(nr,sum,gamma,subsize) {
 # Function which finds potential breakpoints
 findMarksMulti <- function(markSub,Nr,subsize){
 	## markSub: marks in compressed scale
-	## NR: number of observations between potenstial breakpoints
+	## NR: number of observations between potential breakpoints
 	mark <- rep(FALSE,subsize)  ## marks in original scale
 	if(sum(markSub)<1) {
     return(mark)
@@ -677,7 +710,7 @@ findMarksMulti <- function(markSub,Nr,subsize){
 		startOrig<-1
 		for(i in 1:lengdeHelp){
 			start0 <- start0+lengde[i]
-			lengdeOrig <- sum(Nr[oldStart:(start0-1)])
+			lengdeOrig <- sum(Nr[,oldStart:(start0-1)])
 			startOrig <- startOrig+lengdeOrig
 			mark[startOrig-1]<-TRUE
 			oldStart<-start0
@@ -732,9 +765,9 @@ sawMarkM <- function(x,L,frac1,frac2){
 			sawValue[l+L-1]<-sawValue[l+L-1]+abs(diff)
 		}
 	}
-	limit <- quantile(sawValue,(1-frac1))
+	limit <- quantile(sawValue,(1-frac1), na.rm=TRUE)
 	for (l in 1:(nrProbes-2*L)){
-		if (sawValue[l+L-1] > limit) {
+	  if (!is.na(sawValue[l+L-1]) && sawValue[l+L-1] > limit) {
 			mark[l+L-1] <- 1
 		}
 	}
@@ -744,9 +777,9 @@ sawMarkM <- function(x,L,frac1,frac2){
 			sawValue2[l+2]<-sawValue2[l+2]+abs(diff2)
 		}
 	}
-	limit2 <- quantile(sawValue2,(1-frac2))
+	limit2 <- quantile(sawValue2,(1-frac2), na.rm=TRUE)
 	for (l in (L-1):(nrProbes-L-2)){
-		if (sawValue2[l+2] > limit2) {
+		if (!is.na(sawValue[l+2]) && sawValue2[l+2] > limit2) {
 			mark[l+2] <- 1
 		}
 	}

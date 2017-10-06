@@ -1,9 +1,9 @@
 ####################################################################
-## Author: Gro Nilsen, Knut Liestøl and Ole Christian Lingjærde.
+## Author: Gro Nilsen, Knut Liest?l and Ole Christian Lingj?rde.
 ## Maintainer: Gro Nilsen <gronilse@ifi.uio.no>
 ## License: Artistic 2.0
 ## Part of the copynumber package
-## Reference: Nilsen and Liestøl et al. (2012), BMC Genomics
+## Reference: Nilsen and Liest?l et al. (2012), BMC Genomics
 ####################################################################
 
 
@@ -25,6 +25,8 @@
 ### none
 
 medianFilter <- function(x,k){
+#  print("Removing NAs")
+  x <- x[!is.na(x)]
   n <- length(x)
   filtWidth <- 2*k + 1
   
@@ -39,6 +41,10 @@ medianFilter <- function(x,k){
       filtWidth <- n
     }
   }
+#  print("n =")
+#  print(n)
+#  print("filtwidth = ")
+#  print(filtWidth)
   
   runMedian <- runmed(x,k=filtWidth,endrule="median")
 
