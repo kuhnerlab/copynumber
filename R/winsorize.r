@@ -1,9 +1,9 @@
 ####################################################################
-## Author: Gro Nilsen, Knut Liestøl and Ole Christian Lingjærde.
+## Author: Gro Nilsen, Knut Liest?l and Ole Christian Lingj?rde.
 ## Maintainer: Gro Nilsen <gronilse@ifi.uio.no>
 ## License: Artistic 2.0
 ## Part of the copynumber package
-## Reference: Nilsen and Liestøl et al. (2012), BMC Genomics
+## Reference: Nilsen and Liest?l et al. (2012), BMC Genomics
 ####################################################################
 
 
@@ -81,6 +81,15 @@ winsorize <- function(data, pos.unit="bp", arms=NULL, method="mad", tau=2.5, k=2
     chrom.pos <- read.table(file=data,sep="\t",header=TRUE,colClasses=c(rep(NA,2),rep("NULL",nSample)),as.is=TRUE)   #chromosomes could be character or numeric
     chrom <- chrom.pos[,1]
     pos <- chrom.pos[,2]
+  }
+  
+  outnames <- rep(0,1)
+  outnames <- colnames(data)[1:2]
+  if (length(outnames[0]) == 0) {
+    outnames[0] = "chrom"
+  }
+  if (length(outnames[1]) == 0) {
+    outnames[1] = "pos"
   }
 
   #Make sure chrom is not factor:
@@ -205,9 +214,9 @@ winsorize <- function(data, pos.unit="bp", arms=NULL, method="mad", tau=2.5, k=2
         wd <- file(file.names[1],"w")  
         wo <- file(file.names[2],"w")  
       }
-      write.table(data.frame(chrom[probe.c],pos[probe.c],wins.data.c,stringsAsFactors=FALSE), file=wd,col.names=if(c==1) c("chrom","pos",sample.names) else FALSE,row.names=FALSE,quote=FALSE,sep="\t")
+      write.table(data.frame(chrom[probe.c],pos[probe.c],wins.data.c,stringsAsFactors=FALSE), file=wd,col.names=if(c==1) c(outnames[1], outnames[2],sample.names) else FALSE,row.names=FALSE,quote=FALSE,sep="\t")
       
-      write.table(data.frame(chrom[probe.c],pos[probe.c],wins.outliers.c,stringsAsFactors=FALSE), file=wo,col.names=if(c==1) c("chrom","pos",sample.names) else FALSE,row.names=FALSE,quote=FALSE,sep="\t")
+      write.table(data.frame(chrom[probe.c],pos[probe.c],wins.outliers.c,stringsAsFactors=FALSE), file=wo,col.names=if(c==1) c(outnames[1], outnames[2],sample.names) else FALSE,row.names=FALSE,quote=FALSE,sep="\t")
     }
     
     if(verbose){
@@ -223,10 +232,10 @@ winsorize <- function(data, pos.unit="bp", arms=NULL, method="mad", tau=2.5, k=2
   }
 	if(!save.res){
 	  wins.data <- data.frame(chrom,pos,wins.data,stringsAsFactors=FALSE)
-	  colnames(wins.data) <- c("chrom","pos",sample.names)
+	  colnames(wins.data) <- c(outnames[1], outnames[2],sample.names)
     if(return.outliers){
       wins.outliers <- data.frame(chrom,pos,wins.outliers,stringsAsFactors=FALSE)
-		  colnames(wins.outliers) <- c("chrom","pos",sample.names)
+		  colnames(wins.outliers) <- c(outnames[1], outnames[2],sample.names)
 		  return(list(wins.data=wins.data,wins.outliers=wins.outliers))
 	  }else{
       return(wins.data)

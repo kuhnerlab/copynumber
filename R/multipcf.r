@@ -217,10 +217,8 @@ multipcf <- function(data,pos.unit="bp",arms=NULL,Y=NULL,gamma=40,normalize=TRUE
       arm.data <- sweep(arm.data,2,w,"*")
       
       #Run multipcf:
-      if(TRUE){
-      #if(!fast || nrow(arm.data)<400){ 
+      if(!fast || nrow(arm.data)<400){ 
         print("Running 'doMultiPCF'")
-        #exit()
         mpcf <- doMultiPCF(as.matrix(t(arm.data)),gamma=gamma,yest=yest)   #requires samples in rows, probes in columns
         #note: returns samples in rows, estimates in columns.
       }else{  
@@ -448,8 +446,7 @@ doMultiPCF <- function(y, gamma, yest) {
 ## Choose fast multipcf version, called by multipcf (main function)                                                   
 selectFastMultiPcf <- function(x,gamma,L,yest){
 	xLength <- nrow(x)
-	if (TRUE) {
-	#if (xLength< 1000) {
+	if (xLength< 1000) {
 	  result<-runFastMultiPCF(x,gamma,L,0.15,0.15,yest)
 	} else {
 		if (xLength < 3000){
@@ -471,7 +468,7 @@ runFastMultiPCF <- function (x, gamma, L, frac1, frac2, yest) {
   mark <- rep(0, nrow(x))
 	mark<-sawMarkM(x,L,frac1,frac2)
 	dense <- compactMulti(t(x), mark)
-	compPotts <- multiPCFcompact(dense$Nr, dense$Sum, gamma)
+	compPotts <- multiPCFcompact(dense$Nr, dense$Sum, dense$Nindex, gamma)
   if (yest) {
 		potts <- expandMulti(nrow(x),ncol(x), compPotts$Lengde,compPotts$mean)
 		return(list(pcf = potts, length = compPotts$Lengde, start0 = compPotts$sta, 
@@ -490,7 +487,7 @@ runMultiPcfSubset <- function(x,gamma,L,frac1,frac2,yest){
 	markInit <- c(mark[1:(SUBSIZE-1)],TRUE)
 	compX <- compactMulti(t(x[1:SUBSIZE,]),markInit)
 	mark2 <- rep(FALSE,antGen)
-	mark2[1:SUBSIZE] <- markMultiPotts(compX$Nr,compX$Sum,gamma,SUBSIZE)
+	mark2[1:SUBSIZE] <- markMultiPotts(compX$Nr,compX$Sum,compX$Nindex,gamma,SUBSIZE)
   mark2[4*SUBSIZE/5] <- TRUE
 	start0 <- 4*SUBSIZE/5+1
 	while(start0 + SUBSIZE < antGen){
@@ -498,13 +495,13 @@ runMultiPcfSubset <- function(x,gamma,L,frac1,frac2,yest){
 		markSub <- c(mark2[1:(start0-1)],mark[start0:slutt])
 		markSub[slutt] <- TRUE
 		compX <- compactMulti(t(x[1:slutt,]),markSub)
-		mark2[1:slutt] <- markMultiPotts(compX$Nr,compX$Sum,gamma,slutt)
+		mark2[1:slutt] <- markMultiPotts(compX$Nr,compX$Sum,compX$Nindex,gamma,slutt)
     start0 <- start0+4*SUBSIZE/5
 		mark2[start0-1] <- TRUE
 	}
 	markSub <- c(mark2[1:(start0-1)],mark[start0:antGen])
 	compX <- compactMulti(t(x),markSub)
-	compPotts <- multiPCFcompact(compX$Nr,compX$Sum,gamma)
+	compPotts <- multiPCFcompact(compX$Nr,compX$Sum,compX$Nindex,gamma)
   if (yest) {
 		potts <- expandMulti(nrow(x),ncol(x), compPotts$Lengde,compPotts$mean)
 		return(list(pcf = potts, length = compPotts$Lengde, start0 = compPotts$sta, 
@@ -526,6 +523,7 @@ compactMulti <- function(y,mark){
 	antMark <- sum(mark)
 	ant <- rep(0,antMark*antSample)
 	sum <- rep(0,antMark*antSample)
+	nindex <- rep(1,antMark)
 	dim(ant) <- c(antSample,antMark)
 	dim(sum) <- c(antSample,antMark)
 	pos <- 1
@@ -536,20 +534,21 @@ compactMulti <- function(y,mark){
 		posArray <- 1*!is.na(y[,pos])
 		while (mark[pos] < 1){
 			delSum <- delSum + ynoNA[,pos]
-			posArray <- posArray + !is.na(y[,pos])
+			nindex[count] <- nindex[count]+1
 			pos <- pos+1
+			posArray <- posArray + !is.na(y[,pos])
 		}		
 		ant[,count] <- posArray
 		sum[,count] <- delSum+ynoNA[,pos]
 		pos <- pos+1
 		count <- count+1
 	}
-	list(Nr=ant,Sum=sum)
+	list(Nr=ant,Sum=sum,Nindex=nindex)
 }
 
 
 # main calculations for fast multipcf-versions
-multiPCFcompact <- function(nr,sum,gamma) {
+multiPCFcompact <- function(nr,sum,nindex,gamma) {
   ## nr,sum : numbers and sums for one analysis unit,
   ## typically one chromosomal arm. Samples assumed to be in rows. 
   ## gamma: penalty for discontinuities
@@ -571,7 +570,7 @@ multiPCFcompact <- function(nr,sum,gamma) {
 	Cost <- rep(0,N)
 	## Filling of first elements
 	Sum[ ,1]<-sum[,1]
-	Nevner[,1]<-nr[1]
+	Nevner[,1]<-nr[,1]
 	bestSplit[1]<-0	
 	bestAver[,1] <- sum[,1]/nr[1]
 	helper <- rep(1, nSamples)
@@ -585,23 +584,23 @@ multiPCFcompact <- function(nr,sum,gamma) {
 	## at any position below n, and which.min finds the position 
 	## with lowest cost (best split). Aver is the average of the 
 	## righthand plateau.
-	for (n in 2:N) {
-    Sum[ ,1:n] <- Sum[ ,1:n]+sum[,n]
-		Nevner[,1:n] <- Nevner[,1:n]+nr[,n]
-		eachCost[ ,1:n] <- -(Sum[ ,1:n]^2)/Nevner[ ,1:n]
-		eachCost[is.na(eachCost[,1:n])] <- 0
-    Cost[1:n] <- helper %*% eachCost[, 1:n]
-		Cost[2:n] <- Cost[2:n]+bestCost[1:(n-1)]+gamma
-		Pos <- which.min(Cost[1:n])
- 		cost <- Cost[Pos]
- 		aver <- Sum[ ,Pos]/Nevner[,Pos]
- 		#print("Second location")
- 		bestCost[n] <- cost
- 		bestAver[ ,n] <- aver
- 		bestSplit[n] <- Pos-1
-
- 	}
-
+  if (N>1) {
+    for (n in 2:N) {
+      Sum[ ,1:n] <- Sum[ ,1:n]+sum[,n]
+  		Nevner[,1:n] <- Nevner[,1:n]+nr[,n]
+  		eachCost[ ,1:n] <- -(Sum[ ,1:n]^2)/Nevner[ ,1:n]
+  		eachCost[is.na(eachCost[,1:n])] <- 0
+      Cost[1:n] <- helper %*% eachCost[, 1:n]
+  		Cost[2:n] <- Cost[2:n]+bestCost[1:(n-1)]+gamma
+  		Pos <- which.min(Cost[1:n])
+   		cost <- Cost[Pos]
+   		aver <- Sum[ ,Pos]/Nevner[,Pos]
+   		#print("Second location")
+   		bestCost[n] <- cost
+   		bestAver[ ,n] <- aver
+   		bestSplit[n] <- Pos-1
+   	}
+  }
 	## The final solution is found iteratively from the sequence   
 	## of split positions stored in bestSplit and the averages 
 	## for each plateau stored in bestAver
@@ -611,7 +610,7 @@ multiPCFcompact <- function(nr,sum,gamma) {
  	while (n > 0) {
 		yhat[ ,(bestSplit[n]+1):n] <- bestAver[ ,n]
  		antInt <- antInt+1
-		lengde[antInt] <- sum(nr[(bestSplit[n]+1):n])
+		lengde[antInt] <- sum(nindex[(bestSplit[n]+1):n])
 		n <- bestSplit[n]
  	}
 	lengdeRev <- lengde[antInt:1]
@@ -638,7 +637,7 @@ multiPCFcompact <- function(nr,sum,gamma) {
 }
 
 # helper function for fast version 2
-markMultiPotts <- function(nr,sum,gamma,subsize) {
+markMultiPotts <- function(nr,sum,nindex,gamma,subsize) {
   ## nr,sum: numbers and sums for one analysis unit,
   ##  typically one chromosomal arm. Samples assumed to be in rows. 
   ## gamma: penalty for discontinuities
@@ -665,27 +664,29 @@ markMultiPotts <- function(nr,sum,gamma,subsize) {
 	helper <- rep(1, nSamples)
 	bestCost[1]<-helper%*%(-Sum[,1]*bestAver[,1])	
 	lengde <- rep(0,N)
-	for (n in 2:N) {
-    Sum[ ,1:n] <- Sum[ ,1:n]+sum[,n]
-    Nevner[,1:n] <- Nevner[,1:n]+nr[,n]
-    eachCost[ ,1:n] <- -(Sum[ ,1:n]^2)/Nevner[ ,1:n]
-    eachCost[is.na(eachCost[, 1:n])] <- 0
-    Cost[1:n] <- helper %*% eachCost[, 1:n]
-		Cost[2:n] <- Cost[2:n]+bestCost[1:(n-1)]+gamma
-		Pos <- which.min(Cost[1:n])
- 		cost <- Cost[Pos]
- 		if (length(cost)==0) {
- 		  cost <- 0.0
- 		}
- 		aver <- Sum[ ,Pos]/Nevner[,Pos]
- 		#print "Third location"
- 		bestCost[n] <- cost
- 		bestAver[ ,n] <- aver
- 		bestSplit[n] <- Pos-1
-		markSub[Pos-1] <- TRUE
-
- 	}
-	help<-findMarksMulti(markSub,nr,subsize)
+	if (N>1) {
+	  for (n in 2:N) {
+      Sum[ ,1:n] <- Sum[ ,1:n]+sum[,n]
+      Nevner[,1:n] <- Nevner[,1:n]+nr[,n]
+      eachCost[ ,1:n] <- -(Sum[ ,1:n]^2)/Nevner[ ,1:n]
+      eachCost[is.na(eachCost[, 1:n])] <- 0
+      Cost[1:n] <- helper %*% eachCost[, 1:n]
+  		Cost[2:n] <- Cost[2:n]+bestCost[1:(n-1)]+gamma
+  		Pos <- which.min(Cost[1:n])
+   		cost <- Cost[Pos]
+   		if (length(cost)==0) {
+   		  cost <- 0.0
+   		}
+   		aver <- Sum[ ,Pos]/Nevner[,Pos]
+   		#print "Third location"
+   		bestCost[n] <- cost
+   		bestAver[ ,n] <- aver
+   		bestSplit[n] <- Pos-1
+  		markSub[Pos-1] <- TRUE
+  
+	  }
+	}
+	help<-findMarksMulti(markSub,nindex,subsize)
 	return(help)
 
 }
@@ -710,7 +711,7 @@ findMarksMulti <- function(markSub,Nr,subsize){
 		startOrig<-1
 		for(i in 1:lengdeHelp){
 			start0 <- start0+lengde[i]
-			lengdeOrig <- sum(Nr[,oldStart:(start0-1)])
+			lengdeOrig <- sum(Nr[oldStart:(start0-1)])
 			startOrig <- startOrig+lengdeOrig
 			mark[startOrig-1]<-TRUE
 			oldStart<-start0
@@ -740,11 +741,17 @@ expandMulti <- function(nProbes,nSamples,lengthInt, mean){
 }
 
 ## sawtooth-filter for multiPCF - marks potential breakpoints. Uses two 
-## sawtoothfilters, one lang (length L) and one short (fixed length 6)	
+## sawtoothfilters, one long (length L) and one short (fixed length 6)	
 sawMarkM <- function(x,L,frac1,frac2){
-	nrProbes <- nrow(x)
+  #print("Running the new version of sawMarkM")
+  nrProbes <- nrow(x)
  	nrSample <- ncol(x)
   mark <- rep(0,nrProbes)
+  if (nrProbes < 2*L) {
+    #We don't have enough probes to do a whole sawtooth: just mark the end and return.
+    mark[nrProbes] <- 1
+    return(mark)
+  }
   sawValue <- rep(0,nrProbes)
   filter <- rep(0,2*L)
   sawValue2 <- rep(0,nrProbes)
@@ -758,31 +765,139 @@ sawMarkM <- function(x,L,frac1,frac2){
   		filter2[k] <- k/3
   		filter2[7-k] <- -k/3
 	}
+  
+  index_longneg <-rep(0,nrProbes*nrSample)
+  dim(index_longneg) <- c(nrProbes,nrSample)
+  index_longpos <-rep(0,nrProbes*nrSample)
+  dim(index_longpos) <- c(nrProbes,nrSample)
+  index_shortneg <-rep(0,nrProbes*nrSample)
+  dim(index_shortneg) <- c(nrProbes,nrSample)
+  index_shortpos <-rep(0,nrProbes*nrSample)
+  dim(index_shortpos) <- c(nrProbes,nrSample)
+  
+  xnas <-rep(0,nrProbes*nrSample)
+  dim(xnas) <- c(nrProbes,nrSample)
+  xnas <- !is.na(x)*1
+  
+  for (s in 1:nrSample) {
+    longneg <- 2
+    longpos <- L
+    shortneg <- 2
+    shortpos <- 3
+    for (p in 3:(nrProbes-3)) {
+      sumlong <- sum(xnas[(p-longneg):p, s])
+      while(p>longneg && sumlong != L) {
+        if(sumlong<L) {
+          longneg <- longneg + 1
+          sumlong <- sum(xnas[(p-longneg):p, s])
+        }
+        else {
+          longneg <- longneg - 1
+          sumlong <- sum(xnas[(p-longneg):p, s])
+        }
+      }
+      if (sumlong==L) {
+        index_longneg[p, s] = longneg
+      }
+      
+      if(p+longpos >= nrProbes) {
+        longpos <- longpos-1
+      }
+      sumlong <- sum(xnas[(p+1):(p+longpos), s])
+      while(p+longpos < nrProbes && sumlong != L) {
+        if(sumlong<L) {
+          longpos <- longpos + 1
+          sumlong <- sum(xnas[(p+1):(p+longpos), s])
+        }
+        else {
+          longpos <- longpos - 1
+          sumlong <- sum(xnas[(p+1):(p+longpos), s])
+        }
+      }
+      if (sumlong == L) {
+        index_longpos[p, s] = longpos
+      }
+      
+      
+      sumshort <- sum(xnas[(p-shortneg):p, s])
+      while(p>shortneg && sumshort != 3) {
+        if(sumshort<3) {
+          shortneg <- shortneg + 1
+          sumshort <- sum(xnas[(p-shortneg):p, s])
+        }
+        else {
+          shortneg <- shortneg - 1
+          sumshort <- sum(xnas[(p-shortneg):p, s])
+        }
+      }
+      if (sumshort==3) {
+        index_shortneg[p, s] = shortneg
+      }
 
-	for (l in 1:(nrProbes-2*L+1)){
-		for (m in 1:nrSample){	
-			diff=crossprod(filter,x[l:(l+2*L-1),m])
-			sawValue[l+L-1]<-sawValue[l+L-1]+abs(diff)
-		}
-	}
+      if(p+shortpos >= nrProbes) {
+        shortpos <- shortpos-1
+      }
+      sumshort <- sum(xnas[(p+1):(p+shortpos), s])
+      while(p+shortpos < nrProbes && sumshort != 3) {
+        if(sumshort<3) {
+          shortpos <- shortpos + 1
+          sumshort <- sum(xnas[(p+1):(p+shortpos), s])
+        }
+        else {
+          shortpos <- shortpos - 1
+          sumshort <- sum(xnas[(p+1):(p+shortpos), s])
+        }
+      }
+      if (sumshort == 3) {
+        index_shortpos[p, s] = shortpos
+      }
+    }
+  }
+  
+  #For the long probe:
+  for(s in 1:nrSample) {
+    for (p in L:(nrProbes-L)) {
+      neg = index_longneg[p,s]
+      pos = index_longpos[p,s]
+      if (neg != 0 && pos != 0) {
+        start <- p-neg
+        stop <- p+pos
+        diff = crossprod(filter, x[start:stop,s][!is.na(x[start:stop,s])])
+        stopifnot(length(x[start:stop,s][!is.na(x[start:stop,s])]) == L*2)
+        sawValue[p]<-sawValue[p]+abs(diff)
+      }
+    }
+  }
+
 	limit <- quantile(sawValue,(1-frac1), na.rm=TRUE)
 	for (l in 1:(nrProbes-2*L)){
 	  if (!is.na(sawValue[l+L-1]) && sawValue[l+L-1] > limit) {
 			mark[l+L-1] <- 1
 		}
 	}
-	for (l in (L-1):(nrProbes-L-2)){
-		for (m in 1:nrSample){	
-			diff2=crossprod(filter2,x[l:(l+5),m])
-			sawValue2[l+2]<-sawValue2[l+2]+abs(diff2)
-		}
+
+	#For the short probe:
+	for(s in 1:nrSample) {
+	  for (p in 3:(nrProbes-3)) {
+	    neg = index_shortneg[p,s]
+	    pos = index_shortpos[p,s]
+	    if (neg != 0 && pos != 0) {
+	      start <- p-neg
+	      stop <- p+pos
+	      diff2 = crossprod(filter2, x[start:stop,s][!is.na(x[start:stop,s])])
+	      stopifnot(length(x[start:stop,s][!is.na(x[start:stop,s])]) == 6)
+	      sawValue2[p]<-sawValue2[p]+abs(diff2)
+	    }
+	  }
 	}
+	
 	limit2 <- quantile(sawValue2,(1-frac2), na.rm=TRUE)
-	for (l in (L-1):(nrProbes-L-2)){
-		if (!is.na(sawValue[l+2]) && sawValue2[l+2] > limit2) {
-			mark[l+2] <- 1
-		}
+	for (l in 1:(nrProbes-3)){
+	  if (!is.na(sawValue2[l+2]) && sawValue2[l+2] > limit2) {
+	    mark[l+2] <- 1
+	  }
 	}
+	
 	for (l in 1:L){
 		mark[l] <- 1
 		mark[nrProbes+1-l]<- 1
