@@ -216,6 +216,18 @@ multipcf <- function(data,pos.unit="bp",arms=NULL,Y=NULL,gamma=40,normalize=TRUE
       #weight data (default weights is 1)
       arm.data <- sweep(arm.data,2,w,"*")
       
+      #Swap initial-NA SNPs with the first non-NA SNP for each sample
+      for (s in 1:ncol(arm.data)) {
+        snp <- 2
+        while (is.na(arm.data[1,s]) && snp<nrow(arm.data)) {
+          if(!is.na(arm.data[snp,s])) {
+            arm.data[1,s] = arm.data[snp,s]
+            arm.data[snp,s] = NA
+          }
+          snp <- snp+1
+        }
+      }
+      
       #Run multipcf:
       if(!fast || nrow(arm.data)<400){ 
         print("Running 'doMultiPCF'")
@@ -466,7 +478,7 @@ selectFastMultiPcf <- function(x,gamma,L,yest){
 # Fast version 1, for moderately long sequences, called by selectFastMultiPcf
 runFastMultiPCF <- function (x, gamma, L, frac1, frac2, yest) {   	
   mark <- rep(0, nrow(x))
-	mark<-sawMarkM(x,L,frac1,frac2)
+	mark <- sawMarkM(x,L,frac1,frac2)
 	dense <- compactMulti(t(x), mark)
 	compPotts <- multiPCFcompact(dense$Nr, dense$Sum, dense$Nindex, gamma)
   if (yest) {
@@ -741,15 +753,15 @@ expandMulti <- function(nProbes,nSamples,lengthInt, mean){
 }
 
 ## sawtooth-filter for multiPCF - marks potential breakpoints. Uses two 
-## sawtoothfilters, one long (length L) and one short (fixed length 6)	
+## sawtoothfilters, one long (length 2*L) and one short (fixed length 6)	
 sawMarkM <- function(x,L,frac1,frac2){
   #print("Running the new version of sawMarkM")
   nrProbes <- nrow(x)
  	nrSample <- ncol(x)
   mark <- rep(0,nrProbes)
   if (nrProbes < 2*L) {
-    #We don't have enough probes to do a whole sawtooth: just mark the end and return.
-    mark[nrProbes] <- 1
+    #We don't have enough probes to do a whole sawtooth: fill with 1's and return.
+    mark <- rep(1,nrProbes)
     return(mark)
   }
   sawValue <- rep(0,nrProbes)
