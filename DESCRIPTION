@@ -2,7 +2,7 @@ Package: lscopynumber
 Title: Segmentation of single- and multi-track copy number data by
         penalized least squares regression.
 Version: 1.17.0
-Author: Gro Nilsen, Knut Liestoel and Ole Christian Lingjaerde.
+Author: Gro Nilsen, Knut Liestoel and Ole Christian Lingjaerde.  Changes by Lucian Smith
 Maintainer: Gro Nilsen <gronilse@ifi.uio.no>
 Description: Penalized least squares regression is applied to fit
         piecewise constant curves to copy number data to locate genomic
@@ -13,7 +13,7 @@ Description: Penalized least squares regression is applied to fit
         visualization of the data and the segmentation results.
 License: Artistic-2.0
 LazyData: yes
-Date: 2013-04-16
+Date: 2018-07-20
 BuildResaveData: best
 Depends: R (>= 2.10), BiocGenerics
 Imports: S4Vectors, IRanges, GenomicRanges
